@@ -12,7 +12,16 @@ class Model:
     tokenizer = None
 
 
-model_list = "AUTOMATIC/promptgen-lexart, AUTOMATIC/promptgen-majinai-safe, AUTOMATIC/promptgen-majinai-unsafe, succinctly/text2image-prompt-generator, microsoft/Promptist, RamAnanth1/distilgpt2-sd-prompts, Gustavosta/MagicPrompt-Stable-Diffusion, FredZhang7/distilgpt2-stable-diffusion-v2"
+model_list = [
+    "AUTOMATIC/promptgen-lexart",
+    "AUTOMATIC/promptgen-majinai-safe",
+    "AUTOMATIC/promptgen-majinai-unsafe",
+    "succinctly/text2image-prompt-generator",
+    "microsoft/Promptist",
+    "RamAnanth1/distilgpt2-sd-prompts",
+    "Gustavosta/MagicPrompt-Stable-Diffusion",
+    "FredZhang7/distilgpt2-stable-diffusion-v2"
+]
 available_models = []
 current = Model()
 base_dir = scripts.basedir()
@@ -166,7 +175,7 @@ def add_tab():
 
 def on_ui_settings():
     section = ("promptgen", "PromptGen")
-    shared.opts.add_option("promptgen_names", shared.OptionInfo(model_list, "PromptGen Hugginface models", section=section))
+    shared.opts.add_option("promptgen_names", shared.OptionInfo((', ').join(model_list), "PromptGen Hugginface models", section=section))
 
 
 def on_unload():
