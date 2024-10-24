@@ -24,10 +24,32 @@ model_list = [
 ]
 available_models = []
 current = Model()
+current_device = None
 base_dir = scripts.basedir()
 
 
+def device():
+    # Determine the device to use for text generation based on user selection
+    global current_device
+    if shared.opts.promptgen_device == 'gpu':
+        if torch.cuda.is_available():
+            if current_device != 'gpu':
+                print("PromptGen: Using GPU for text generation as selected by the user.")
+                current_device = 'gpu'
+            return devices.device
+        else:
+            print("PromptGen: GPU selected by the user, but not available. Falling back to CPU.")
+            current_device = 'cpu'
+            return devices.cpu
+    else:
+        if current_device != 'cpu':
+            print("PromptGen: Using CPU for text generation as selected by the user.")
+            current_device = 'cpu'
+        return devices.cpu
+
+
 def list_available_models():
+    # List available models based on user-defined names
     available_models.clear()
     for name in [x.strip() for x in shared.opts.promptgen_names.split(",")]:
         if not name:
@@ -38,6 +60,7 @@ def list_available_models():
 def generate_batch(input_ids, min_length, max_length, num_beams, temperature, repetition_penalty, length_penalty, sampling_mode, top_k, top_p):
     # https://huggingface.co/docs/huggingface_hub/main/en/package_reference/inference_client#huggingface_hub.inference._text_generation.TextGenerationParameters
     # https://huggingface.co/docs/transformers/main/en/generation_strategies#text-generation-strategies
+    # Generate text using the current model based on the provided parameters
     outputs = current.model.generate(
         input_ids,
         do_sample=True,
@@ -56,14 +79,17 @@ def generate_batch(input_ids, min_length, max_length, num_beams, temperature, re
 
 
 def model_selection_changed(model_name):
+    # Handle model selection change
     if model_name == "None":
         current.tokenizer = None
         current.model = None
         current.name = None
         devices.torch_gc()
+        print('PromptGen: model selection changed to "None".')
 
 
 def generate(id_task, model_name, batch_count, batch_size, text, *args): # pylint: disable=unused-argument
+    # Generate text based on the input parameters
     shared.state.begin('promptgen')
     shared.state.job_count = batch_count
     if current.name != model_name:
@@ -71,31 +97,39 @@ def generate(id_task, model_name, batch_count, batch_size, text, *args): # pylin
         current.model = None
         current.name = None
         if model_name != 'None':
-            shared.log.info(f'PromptGen: loading model={model_name}')
-            current.tokenizer = transformers.AutoTokenizer.from_pretrained(model_name)
-            current.model = transformers.AutoModelForCausalLM.from_pretrained(model_name)
-            current.name = model_name
+            print(f'PromptGen: loading model={model_name}...')
+            try:
+                current.tokenizer = transformers.AutoTokenizer.from_pretrained(model_name)
+                current.model = transformers.AutoModelForCausalLM.from_pretrained(model_name)
+                current.name = model_name
+                print(f'PromptGen: model={model_name} loaded successfully.')
+            except Exception as e:
+                msg = f'PromptGen: error loading model: {e}'
+                print(msg)
+                shared.state.end()
+                return '', 'Failed to load model.'
     if current.model is None:
         msg = 'PromptGen: no model available'
-        shared.log.error(msg)
+        print(msg)
         shared.state.end()
         return '', msg
     if current.tokenizer is None:
         msg = 'PromptGen: no tokenizer available'
-        shared.log.error(msg)
+        print(msg)
         shared.state.end()
         return '', msg
-    current.model.to(devices.device)
+    current.model.to(device())
     shared.state.textinfo = ""
     input_ids = current.tokenizer(text, return_tensors="pt").input_ids
     if input_ids.shape[1] == 0:
-        input_ids = torch.asarray([[current.tokenizer.bos_token_id]], dtype=torch.long)
-    input_ids = input_ids.to(devices.device)
+        input_ids = torch.tensor([[current.tokenizer.bos_token_id]], dtype=torch.long)
+    input_ids = input_ids.to(device())
     input_ids = input_ids.repeat((batch_size, 1))
+    print(f'PromptGen: generating text with model={model_name} batch={batch_count}x{batch_size}...')
     markup = '<table><tbody>'
     index = 0
-    shared.log.info(f'PromptGen: model={model_name} batch={batch_count}x{batch_size}')
-    for _i in range(batch_count):
+    print(f'PromptGen: model={model_name} batch={batch_count}x{batch_size}')
+    for _ in range(batch_count):
         texts = generate_batch(input_ids, *args)
         shared.state.nextjob()
         for generated_text in texts:
@@ -110,28 +144,32 @@ def generate(id_task, model_name, batch_count, batch_size, text, *args): # pylin
                 </tr>
                 """
     markup += '</tbody></table>'
+    devices.torch_gc()
     shared.state.end()
     return markup, ''
 
 
 def find_prompts(fields):
+    # Find prompts in the provided fields
     field_prompt = [x for x in fields if x[1] == "Prompt"][0]
     field_negative_prompt = [x for x in fields if x[1] == "Negative prompt"][0]
     return [field_prompt[0], field_negative_prompt[0]]
 
 
 def send_prompts(text):
+    # Parse prompts from the text
     params = generation_parameters_copypaste.parse_generation_parameters(text)
     negative_prompt = params.get("Negative prompt", "")
     return params.get("Prompt", ""), negative_prompt or gr.update()
 
 
 def add_tab():
+    # Add a new tab to the UI
     list_available_models()
     with gr.Blocks(analytics_enabled=False) as tab:
         with gr.Row():
             with gr.Column(scale=80):
-                prompt = gr.Textbox(label="Prompt", elem_id="promptgen_prompt", show_label=False, lines=2, placeholder="Beginning of the prompt (press Ctrl+Enter or Alt+Enter to generate)").style(container=False)
+                prompt = gr.Textbox(label="Prompt", elem_id="promptgen_prompt", show_label=False, lines=2, placeholder="Beginning of the prompt (press Ctrl+Enter or Alt+Enter to generate)", container=False)
             with gr.Column(scale=10):
                 submit = gr.Button('Generate', elem_id="promptgen_generate", variant='primary')
         with gr.Row(elem_id="promptgen_main"):
@@ -175,7 +213,8 @@ def add_tab():
 
 def on_ui_settings():
     section = ("promptgen", "PromptGen")
-    shared.opts.add_option("promptgen_names", shared.OptionInfo((', ').join(model_list), "PromptGen Hugginface models", section=section))
+    shared.opts.add_option("promptgen_names", shared.OptionInfo((', ').join(model_list), "PromptGen Hugginface model names for promptgen, separated by comma", section=section))
+    shared.opts.add_option("promptgen_device", shared.OptionInfo("gpu", "Device to use for text generation", gr.Radio, {"choices": ["gpu", "cpu"]}, section=section))
 
 
 def on_unload():
