@@ -24,8 +24,8 @@ The request body must be a JSON object. Key parameters include:
 
 -   `model_name` (string, **required**): The Hugging Face model name to be used for generation (e.g., `"AUTOMATIC/promptgen-lexart"`).
 -   `text` (string, **required**): The initial text or keywords to base the prompt generation on.
--   `batch_count` (integer, optional, default: `1`): Number of generation batches.
--   `batch_size` (integer, optional, default: `1` - Note: the UI default is 10, but API default is 1 for simpler single calls): Number of prompts to generate per batch. Total prompts = `batch_count * batch_size`.
+-   `batch_count` (integer, optional, default: `1`): Number of times to repeat the generation process for the given input text.
+-   `num_return_sequences` (integer, optional, default: `1`): Number of prompt variations to generate for each input text per batch_count iteration. Total prompts generated will be `batch_count * num_return_sequences`.
 -   `min_length` (integer, optional, default: `20`): Minimum length of the generated prompts.
 -   `max_length` (integer, optional, default: `150`): Maximum length of the generated prompts.
 -   `temperature` (float, optional, default: `1.0`): Controls randomness. Higher values mean more random, lower values mean more deterministic. Must be > 0.
@@ -42,7 +42,7 @@ The request body must be a JSON object. Key parameters include:
 {
   "model_name": "AUTOMATIC/promptgen-lexart",
   "text": "A cat exploring a mysterious forest",
-  "batch_size": 2,
+  "num_return_sequences": 2,
   "max_length": 75,
   "temperature": 1.2,
   "repetition_penalty": 1.5
@@ -92,7 +92,7 @@ curl -X POST http://127.0.0.1:7860/promptgen/v1/generate \
 -d '{
   "model_name": "AUTOMATIC/promptgen-lexart",
   "text": "A futuristic cityscape at sunset",
-  "batch_size": 1,
+  "num_return_sequences": 1,
   "max_length": 80,
   "temperature": 1.1
 }'
@@ -110,7 +110,7 @@ payload = {
   "model_name": "AUTOMATIC/promptgen-lexart", # Or any other model configured in PromptGen
   "text": "A secret agent in a cyberpunk city",
   "batch_count": 1,
-  "batch_size": 2, # Generate 2 prompts
+  "num_return_sequences": 2, # Generate 2 prompt variations
   "max_length": 70,
   "temperature": 1.15,
   "repetition_penalty": 1.2,
@@ -152,3 +152,7 @@ except Exception as e:
 -   **Refactoring:** The core prompt generation logic was refactored into an internal `_perform_generation` function, used by both the Gradio UI and the new FastAPI endpoint.
 -   **Unit Tests:** Added unit tests for the core `_perform_generation` logic, covering various scenarios including successful generation, error conditions, and device handling.
 -   **UI Settings:** Default values for UI sliders are now configurable via the WebUI's main settings page under the "PromptGen" section.
+-   **Asynchronous API:** Implemented asynchronous API operations using FastAPI and asyncio, making the API more responsive, especially under concurrent loads.
+-   **Prompt Caching:** Added LRU (Least Recently Used) caching for generated prompts to significantly speed up responses for repeated requests. Cache can be enabled/disabled and its size configured in PromptGen's settings.
+-   **UI Model Status Display:** Enhanced the user interface with a dedicated model status display, providing clearer feedback on model loading, readiness, and errors.
+-   **`num_return_sequences` Integration:** Integrated `num_return_sequences` parameter (API and UI) for more direct and efficient generation of multiple prompt variations per input, aligning better with Hugging Face model capabilities.
